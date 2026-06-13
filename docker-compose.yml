@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: audira-postgres
+    environment:
+      POSTGRES_USER: audira_admin
+      POSTGRES_PASSWORD: audira_password
+      POSTGRES_DB: audira_mail_os
+    ports:
+      - "5444:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: audira-redis
+    restart: unless-stopped
+
+  backend-api:
+    build:
+      context: .
+      dockerfile: apps/backend-api/Dockerfile
+    container_name: audira-backend-api
+    ports:
+      - "3311:3311"
+    environment:
+      - PORT=3311
+      - DATABASE_URL=postgresql://audira_admin:audira_password@postgres:5432/audira_mail_os?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=audira_enterprise_secret_key
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  mail-engine:
+    build:
+      context: .
+      dockerfile: apps/mail-engine/Dockerfile
+    container_name: audira-mail-engine
+    ports:
+      - "3312:3312"
+    environment:
+      - DATABASE_URL=postgresql://audira_admin:audira_password@postgres:5432/audira_mail_os?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID_HERE
+      - GOOGLE_CLIENT_SECRET=YOUR_GOOGLE_CLIENT_SECRET_HERE
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  ai-engine:
+    build:
+      context: .
+      dockerfile: apps/ai-engine/Dockerfile
+    container_name: audira-ai-engine
+    ports:
+      - "3313:3313"
+    environment:
+      - DATABASE_URL=postgresql://audira_admin:audira_password@postgres:5432/audira_mail_os?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=YOUR_OPENAI_API_KEY_HERE
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  worker-engine:
+    build:
+      context: .
+      dockerfile: apps/worker-engine/Dockerfile
+    container_name: audira-worker-engine
+    ports:
+      - "3314:3314"
+    environment:
+      - DATABASE_URL=postgresql://audira_admin:audira_password@postgres:5432/audira_mail_os?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  notification-engine:
+    build:
+      context: .
+      dockerfile: apps/notification-engine/Dockerfile
+    container_name: audira-notification-engine
+    ports:
+      - "3315:3315"
+    environment:
+      - DATABASE_URL=postgresql://audira_admin:audira_password@postgres:5432/audira_mail_os?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  frontend-web:
+    build:
+      context: .
+      dockerfile: apps/frontend-web/Dockerfile
+    container_name: audira-frontend-web
+    ports:
+      - "3310:3310"
+    depends_on:
+      - backend-api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

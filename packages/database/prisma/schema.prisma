@@ -1,0 +1,352 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id               String            @id @default(uuid())
+  name             String
+  domain           String?           @unique
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  users            User[]
+  teams            Team[]
+  gmailAccounts    GmailAccount[]
+  campaigns        Campaign[]
+  aiConversations  AiConversation[]
+  auditLogs        AuditLog[]
+  activityLogs     ActivityLog[]
+  apiKeys          ApiKey[]
+  webhooks         WebhookEndpoint[]
+  subscription     Subscription?
+  automationRules  AutomationRule[]
+}
+
+model Subscription {
+  id               String       @id @default(uuid())
+  organizationId   String       @unique
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  stripeCustomerId String?
+  planId           String?
+  status           String       // 'active', 'past_due', 'canceled'
+  currentPeriodEnd DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model ApiKey {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  name           String
+  keyHash        String       @unique
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime     @default(now())
+}
+
+model WebhookEndpoint {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  url            String
+  secret         String
+  events         String       // Comma separated events, e.g., 'email.received,campaign.completed'
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+}
+
+model User {
+  id               String            @id @default(uuid())
+  organizationId   String?           // Optional for seamless migration
+  organization     Organization?     @relation(fields: [organizationId], references: [id])
+  email            String            @unique
+  passwordHash     String?
+  name             String
+  mfaEnabled       Boolean           @default(false)
+  mfaSecret        String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  
+  roleId           String?
+  role             Role?             @relation(fields: [roleId], references: [id])
+  
+  gmailAccounts    GmailAccount[]
+  sessions         Session[]
+  devices          Device[]
+  auditLogs        AuditLog[]
+  campaigns        Campaign[]
+  aiConversations  AiConversation[]
+  notifications    Notification[]
+  activityLogs     ActivityLog[]
+  userTeams        UserTeam[]
+}
+
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique // Super Admin, Admin, Manager, Operator, Viewer
+  permissions Permission[]
+  users       User[]
+}
+
+model Permission {
+  id     String @id @default(uuid())
+  action String @unique // e.g., 'manage_users', 'view_reports'
+  roles  Role[]
+}
+
+model GmailAccount {
+  id             String       @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  emailAddress   String       @unique
+  accountName    String
+  status         String       // 'connected', 'disconnected', 'error'
+  lastSync       DateTime?
+  storageUsage   Float        @default(0)
+  recoveryEmail  String?
+  tags           String?      // Comma separated tags for grouping (e.g., "STEAM,GAMING,FARM")
+  createdAt      DateTime     @default(now())
+  
+  oauthToken     OauthToken?
+  emails         Email[]
+}
+
+model OauthToken {
+  id             String       @id @default(uuid())
+  accountId      String       @unique
+  account        GmailAccount @relation(fields: [accountId], references: [id])
+  accessToken    String
+  refreshToken   String
+  expiresAt      DateTime
+  scope          String
+}
+
+model Email {
+  id            String       @id @default(uuid())
+  accountId     String
+  account       GmailAccount @relation(fields: [accountId], references: [id])
+  threadId      String
+  messageId     String       @unique
+  sender        String
+  recipient     String
+  subject       String
+  bodyHtml      String?
+  bodyText      String?
+  category      String?      // 'Sales', 'Support', 'Invoice', 'OTP', etc.
+  isRead        Boolean      @default(false)
+  receivedAt    DateTime
+  createdAt     DateTime     @default(now())
+  
+  attachments   Attachment[]
+  otpMessages   OtpMessage[]
+  labels        EmailLabel[]
+  assignment    Assignment?
+  sentiment        String?      // 'Positive', 'Negative', 'Neutral', 'Urgent', 'Anger'
+  securityScore    Float?       // 0-100
+  securityAnalysis String?      // JSON details of phishing/spoofing threats
+  automationLogs   AutomationLog[]
+}
+
+model Attachment {
+  id          String   @id @default(uuid())
+  emailId     String
+  email       Email    @relation(fields: [emailId], references: [id])
+  filename    String
+  mimeType    String
+  size        Int
+  minioPath   String
+  virusScanned Boolean @default(false)
+}
+
+model OtpMessage {
+  id            String         @id @default(uuid())
+  emailId       String
+  email         Email          @relation(fields: [emailId], references: [id])
+  serviceName   String         // 'AWS', 'Google', 'Cloudflare'
+  otpCode       String
+  expiresAt     DateTime?
+  createdAt     DateTime       @default(now())
+  otpShareLinks OtpShareLink[]
+}
+
+model Label {
+  id        String       @id @default(uuid())
+  name      String       @unique
+  emails    EmailLabel[]
+}
+
+model EmailLabel {
+  emailId   String
+  labelId   String
+  email     Email @relation(fields: [emailId], references: [id])
+  label     Label @relation(fields: [labelId], references: [id])
+  @@id([emailId, labelId])
+}
+
+model Campaign {
+  id             String              @id @default(uuid())
+  organizationId String?
+  organization   Organization?       @relation(fields: [organizationId], references: [id])
+  creatorId      String
+  creator        User                @relation(fields: [creatorId], references: [id])
+  name           String
+  subject        String
+  templateHtml   String
+  status         String              // 'Draft', 'Scheduled', 'Sending', 'Completed'
+  scheduledAt    DateTime?
+  createdAt      DateTime            @default(now())
+  
+  recipients     CampaignRecipient[]
+}
+
+model CampaignRecipient {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  email      String
+  status     String   // 'Pending', 'Sent', 'Opened', 'Bounced'
+  sentAt     DateTime?
+}
+
+model AiConversation {
+  id             String         @id @default(uuid())
+  organizationId String?
+  organization   Organization?  @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User           @relation(fields: [userId], references: [id])
+  title          String
+  createdAt      DateTime       @default(now())
+  messages       AiMessage[]
+}
+
+model AiMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id])
+  role           String         // 'user', 'assistant'
+  content        String
+  createdAt      DateTime       @default(now())
+}
+
+model Team {
+  id             String       @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  name           String
+  users          UserTeam[]
+  assignments    Assignment[]
+}
+
+model UserTeam {
+  userId String
+  teamId String
+  user   User @relation(fields: [userId], references: [id])
+  team   Team @relation(fields: [teamId], references: [id])
+  @@id([userId, teamId])
+}
+
+model Assignment {
+  id        String   @id @default(uuid())
+  emailId   String   @unique
+  email     Email    @relation(fields: [emailId], references: [id])
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  status    String   // 'Open', 'In Progress', 'Resolved'
+  createdAt DateTime @default(now())
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  refreshToken String
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+model Device {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  deviceType String
+  fcmToken   String?
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // 'NewEmail', 'OTP', 'CampaignDone'
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  action         String
+  resource       String
+  details        String?
+  createdAt      DateTime     @default(now())
+}
+
+model ActivityLog {
+  id             String       @id @default(uuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  activity       String
+  createdAt      DateTime     @default(now())
+}
+
+model OtpShareLink {
+  id           String     @id @default(uuid())
+  otpMessageId String
+  otpMessage   OtpMessage @relation(fields: [otpMessageId], references: [id], onDelete: Cascade)
+  token        String     @unique
+  expiresAt    DateTime
+  maxUses      Int        @default(1)
+  usedCount    Int        @default(0)
+  createdAt    DateTime   @default(now())
+}
+
+model AutomationRule {
+  id             String          @id @default(uuid())
+  organizationId String?
+  organization   Organization?   @relation(fields: [organizationId], references: [id])
+  name           String
+  triggerEvent   String          // 'email_received'
+  conditions     String          // JSON: { category?: string, senderContains?: string, subjectContains?: string }
+  actions        String          // JSON: [ { type: 'webhook' | 'auto_reply' | 'assign_team', value: string } ]
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  logs           AutomationLog[]
+}
+
+model AutomationLog {
+  id         String         @id @default(uuid())
+  ruleId     String
+  rule       AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  emailId    String
+  email      Email          @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  status     String         // 'Success', 'Failed'
+  details    String?
+  createdAt  DateTime       @default(now())
+}
